@@ -7,10 +7,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: .
-
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
@@ -19,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Debug paths
+      - name: Debug layout
         run: |
           pwd
           ls -la
