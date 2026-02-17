@@ -1,0 +1,10 @@
+echo __pycache__/>> .gitignore
+echo *.pyc>> .gitignore
+echo .venv/>> .gitignore
+echo dist/>> .gitignore
+echo build/>> .gitignore
+echo *.egg-info/>> .gitignore
+echo .pytest_cache/>> .gitignore
+echo .mypy_cache/>> .gitignore
+echo .cortex/>> .gitignore
+echo .env>> .gitignore
