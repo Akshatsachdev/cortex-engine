@@ -7,6 +7,10 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+
     strategy:
       matrix:
         python-version: ["3.11", "3.12"]
@@ -14,6 +18,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Debug paths
+        run: |
+          pwd
+          ls -la
+          find . -maxdepth 3 -name "pyproject.toml" -print
 
       - name: Set up Python
         uses: actions/setup-python@v5
