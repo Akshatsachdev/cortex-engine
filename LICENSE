@@ -1,0 +1,28 @@
+[project]
+name = "cortex-engine"
+version = "0.1.0"
+description = "Cortex Engine — secure local-first AI execution runtime"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Akshat Sachdeva" }]
+dependencies = [
+  "typer>=0.12.3",
+  "rich>=13.7.1",
+  "pydantic>=2.7.0",
+  "PyYAML>=6.0.1",
+  "platformdirs>=4.2.2",
+]
+
+[project.scripts]
+cortex = "cortex.cli:app"
+
+[build-system]
+requires = ["setuptools>=69.5.1"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
