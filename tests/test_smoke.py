@@ -3,16 +3,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+from platformdirs import user_data_dir
+
 
 def run_cli(*args: str) -> subprocess.CompletedProcess:
     """
-    Run Cortex CLI via python -m cortex.cli to avoid relying on console-script PATH in CI.
+    Run Cortex CLI via python -m cortex.cli so CI doesn't rely on PATH console script.
     """
     return subprocess.run(
-        [sys.executable, "-m", "cortex.cli", *args],
-        capture_output=True,
-        text=True,
-    )
+    [sys.executable, "-m", "cortex.cli", *args],
+    capture_output=True,
+    text=True,
+    check=False,  # explicitly handled via assertions
+)
 
 
 def test_cli_help():
@@ -20,7 +23,7 @@ def test_cli_help():
     assert r.returncode == 0, r.stderr
 
 
-def test_phase_11_commands_and_logs():
+def test_commands_and_logs():
     # config init
     r = run_cli("config", "init")
     assert r.returncode == 0, r.stderr
@@ -39,9 +42,9 @@ def test_phase_11_commands_and_logs():
     assert r.returncode == 0, r.stderr
     assert "Plan Generated" in (r.stdout + r.stderr)
 
-    # Verify newest JSONL log exists + contains allowed_paths in plan params
-    localappdata = Path.home() / "AppData" / "Local"
-    logs_dir = localappdata / "cortex" / "cortex" / "logs"
+    # Cross-platform logs directory (must match runtime/config.py)
+    data_dir = Path(user_data_dir("cortex"))
+    logs_dir = data_dir / "logs"
     assert logs_dir.exists(), f"Logs dir not found: {logs_dir}"
 
     logs = sorted(logs_dir.glob("session_*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -53,11 +56,9 @@ def test_phase_11_commands_and_logs():
 
     events = [json.loads(line) for line in lines]
     ev_names = {e.get("event") for e in events}
-
     assert "session_start" in ev_names
     assert "plan_validated" in ev_names
 
-    # Find plan_validated and ensure allowed_paths is present in params
     plan_event = next(e for e in events if e.get("event") == "plan_validated")
     steps = plan_event["plan"]["steps"]
     assert steps and isinstance(steps, list)
