@@ -26,3 +26,6 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.optional-dependencies]
+llamacpp = ["llama-cpp-python>=0.2.90"]

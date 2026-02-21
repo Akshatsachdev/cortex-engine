@@ -9,6 +9,20 @@ APP_NAME = "cortex"
 DEFAULT_CONFIG: dict = {
     "secure_mode": False,
     "allowed_paths": [],  # empty => default HOME in code
+    "llm": {
+        "enabled": False,
+        "backend": "llama_cpp",
+        "primary_model_path": "",
+        "fallback_model_path": "",
+        "n_ctx": 8192,
+        "temperature": 0.1,
+        "max_tokens": 1200,
+        "timeout_seconds": 60,
+        "gpu": {
+            "enable": True,
+            "n_gpu_layers": 40,
+        },
+    },
     "tools": {
         "filesystem": {"enabled": True},
         "browser": {"enabled": False, "allowlist_domains": []},

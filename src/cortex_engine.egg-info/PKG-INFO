@@ -12,6 +12,8 @@ Requires-Dist: rich>=13.7.1
 Requires-Dist: pydantic>=2.7.0
 Requires-Dist: PyYAML>=6.0.1
 Requires-Dist: platformdirs>=4.2.2
+Provides-Extra: llamacpp
+Requires-Dist: llama-cpp-python>=0.2.90; extra == "llamacpp"
 Dynamic: license-file
 
 # Cortex Engine
