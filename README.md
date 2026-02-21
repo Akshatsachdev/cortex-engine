@@ -1,11 +1,281 @@
 # Cortex Engine
 
-Cortex Engine is a secure, local-first AI execution runtime.
+Cortex Engine is a secure, local-first AI execution runtime that converts natural language tasks into controlled, policy-governed tool actions.
 
-## Dev install
+It is designed to bridge AI planning and system-level execution safely.
 
+Cortex is not a chatbot and not an autonomous agent.  
+Every action is validated, allowlisted, sandboxed, and audited.
+
+---
+
+## Why Cortex Exists
+
+Large language models are powerful planners, but direct execution without control introduces serious risks:
+
+- Arbitrary command execution
+- Data exfiltration
+- Credential leakage
+- System destruction
+- Silent privilege escalation
+
+Cortex Engine enforces strict security boundaries between AI planning and real-world system actions.
+
+The core philosophy:
+
+> AI can propose.  
+> The system decides.  
+> Security always wins.
+
+---
+
+## Core Design Principles
+
+- **Local-first** runtime
+- **Schema-validated planning**
+- **Tool allowlisting**
+- **Path sandbox enforcement**
+- **Append-only audit logging**
+- **Deterministic execution flow**
+- **Incremental security hardening**
+
+---
+
+## Architecture
+
+```
+
+Natural Language Task
+↓
+Plan Generation (LLM or stub planner)
+↓
+Layer 1 — Plan Validator
+↓
+Layer 2 — Tool Firewall
+↓
+Layer 3 — Sandbox Guards
+↓
+Controlled Tool Execution
+↓
+Append-Only Audit Log
+
+```
+
+### Layer 1 — Plan Validator
+
+- Strict Pydantic schema enforcement
+- Duplicate step protection
+- Forbidden intent filtering
+- Deterministic plan validation
+
+### Layer 2 — Tool Firewall
+
+- Tool registry allowlist
+- Risk classification (SAFE / MODIFY / CRITICAL)
+- Approval framework (extensible)
+
+### Layer 3 — Sandbox Guards
+
+- Real path normalization
+- Symlink escape prevention
+- Sensitive path denylist (`.env`, `.ssh`, `.git`, private keys)
+- HOME-directory default sandbox
+
+---
+
+## Audit Logging
+
+Every session writes structured JSONL logs.
+
+Events include:
+
+- `session_start`
+- `plan_validated`
+- `run_result`
+- (execution events when enabled)
+
+Logs are append-only and stored locally:
+
+**Windows**
+
+```
+
+%LOCALAPPDATA%\cortex\cortex\logs\
+
+```
+
+Each log is uniquely identified by a session ID.
+
+---
+
+## Installation
+
+From repository root:
+
+```bash
 pip install -e .
+```
 
-## CLI
+Python 3.11+ required.
 
+---
+
+## CLI Usage
+
+### Show help
+
+```bash
 cortex --help
+```
+
+### Initialize configuration
+
+```bash
+cortex config init
+```
+
+### Show sandbox permissions
+
+```bash
+cortex permissions show
+```
+
+### List registered tools
+
+```bash
+cortex tools list
+```
+
+### Generate a structured plan (dry-run)
+
+```bash
+cortex run --dry-run "organize my downloads"
+```
+
+### Interactive mode
+
+```bash
+cortex interactive
+```
+
+---
+
+## Configuration
+
+Cortex stores configuration in the user config directory.
+
+Default configuration includes:
+
+- Secure mode toggle
+- Allowed sandbox paths
+- Tool enable/disable settings
+
+If no paths are specified, the user's HOME directory is used as the default sandbox root.
+
+---
+
+## Tool System
+
+Tools are registered explicitly in a central registry.
+
+Each tool defines:
+
+- Name
+- Risk level
+- Execution function
+
+Unknown tools are rejected automatically.
+
+Current built-in tools:
+
+- `filesystem.list` (SAFE)
+
+The system is designed to support additional tools such as:
+
+- Filesystem modification tools
+- Browser automation
+- Email drafting
+- Model-backed planning
+
+All tools must pass through the same security layers.
+
+---
+
+## Security Guarantees
+
+Cortex enforces:
+
+- No execution outside sandbox roots
+- No access to sensitive system directories
+- No credential exposure
+- No hidden tool invocation
+- No execution without registration
+- Structured, auditable logs for every session
+
+Execution capabilities are introduced gradually to preserve safety guarantees.
+
+---
+
+## Project Structure
+
+```
+src/
+  cortex/
+    cli.py
+    agent/
+      models.py
+      loop.py
+    runtime/
+      config.py
+      session.py
+      logging.py
+    security/
+      policy_engine.py
+      path_guard.py
+      approvals.py
+      secret_scanner.py
+    tools/
+      base.py
+      registry.py
+      filesystem.py
+```
+
+---
+
+## Testing
+
+Run locally:
+
+```bash
+pytest -q
+```
+
+The test suite verifies:
+
+- CLI integrity
+- Tool registry
+- Plan validation
+- JSONL log creation
+- Sandbox context inclusion
+
+---
+
+## Roadmap
+
+Cortex Engine is built incrementally with security as the primary constraint.
+
+Planned enhancements include:
+
+- Model-backed structured planning
+- Dual-model failover support
+- Tool execution with risk-based approvals
+- Secure mode enforcement
+- Browser and email integrations
+- Outbound secret scanning
+- Windows desktop launcher
+
+---
+
+## License
+
+MIT License
