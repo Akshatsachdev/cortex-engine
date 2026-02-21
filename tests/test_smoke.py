@@ -42,6 +42,11 @@ def test_commands_and_logs():
     assert r.returncode == 0, r.stderr
     assert "Plan Generated" in (r.stdout + r.stderr)
 
+    # execute should work (SAFE tool only)
+    r = run_cli("run", "--execute", "list current folder")
+    assert r.returncode == 0, r.stderr
+    assert "Results" in (r.stdout + r.stderr)
+
     # Cross-platform logs directory (must match runtime/config.py)
     data_dir = Path(user_data_dir("cortex"))
     logs_dir = data_dir / "logs"

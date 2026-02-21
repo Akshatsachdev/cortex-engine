@@ -4,6 +4,7 @@ pyproject.toml
 src/cortex/__init__.py
 src/cortex/cli.py
 src/cortex/agent/__init__.py
+src/cortex/agent/executor.py
 src/cortex/agent/loop.py
 src/cortex/agent/models.py
 src/cortex/runtime/__init__.py

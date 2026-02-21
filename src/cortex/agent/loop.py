@@ -5,6 +5,7 @@ from cortex.runtime.session import new_session
 from cortex.runtime.logging import append_jsonl, session_log_path
 from cortex.security.policy_engine import validate_plan_or_raise
 from cortex.runtime.config import load_config
+from cortex.agent.executor import execute_plan
 
 
 def build_stub_plan(task: str) -> Plan:
@@ -42,9 +43,15 @@ def run_task(task: str, dry_run: bool = True) -> RunResult:
         {"event": "plan_validated", "session_id": session.session_id, "plan": plan.model_dump()},
     )
 
-    result = RunResult(session_id=session.session_id, dry_run=dry_run, plan=plan)
+    results = []
+    if not dry_run:
+        results = execute_plan(session_id=session.session_id, plan=plan, log_path=logp)
+
+    result = RunResult(session_id=session.session_id, dry_run=dry_run, plan=plan, results=results)
+
     append_jsonl(
         logp,
         {"event": "run_result", "session_id": session.session_id, "result": result.model_dump()},
     )
+
     return result

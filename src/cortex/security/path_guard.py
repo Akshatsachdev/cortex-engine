@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
+
 
 
 SENSITIVE_NAMES = {".env", ".ssh", ".git", "id_rsa", "id_ed25519"}
@@ -30,7 +32,7 @@ def enforce_allowed_path(target: str | Path, allowed_paths: list[str]) -> Path:
         Path(p).expanduser().resolve(strict=False) for p in allowed_paths
     ]
 
-    ok = any(rp == root or str(rp).startswith(str(root) + str(Path.sep)) for root in roots)
+    ok = any(rp == root or str(rp).startswith(str(root) + os.sep) for root in roots)
     if not ok:
         raise PathViolation(f"Path outside allowed sandbox: {rp}")
 

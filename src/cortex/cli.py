@@ -82,20 +82,27 @@ def sandbox_check(
 @app.command("run")
 def run(
     task: str = typer.Argument(..., help="Natural language task"),
-    dry_run: bool = typer.Option(True, "--dry-run/--execute", help="Dry run prints plan only (execute not in Phase 1.1)"),
+    dry_run: bool = typer.Option(True, "--dry-run/--execute", help="Dry run prints plan only"),
 ) -> None:
-    if not dry_run:
-        console.print("[red]Execute is not enabled in Phase 1.1. Use --dry-run.[/red]")
-        raise typer.Exit(code=2)
+    result = run_task(task, dry_run=dry_run)
 
-    result = run_task(task, dry_run=True)
+    console.print(Panel.fit(("Plan Generated (dry-run)" if dry_run else "Plan Executed"), title=f"session {result.session_id}"))
 
-    console.print(Panel.fit("Plan Generated (dry-run)", title=f"session {result.session_id}"))
     for s in result.plan.steps:
         console.print(f"[bold]{s.id}[/bold] {s.description}")
         console.print(f"  tool: {s.tool}")
         console.print(f"  risk: {s.risk_level}")
         console.print(f"  params: {s.params}")
+
+    if not dry_run:
+        console.print("\n[bold]Results[/bold]")
+        for r in result.results:
+            if r.ok:
+                console.print(f"[green]OK[/green] {r.step_id} {r.tool}")
+                console.print(f"  output: {r.output}")
+            else:
+                console.print(f"[red]FAIL[/red] {r.step_id} {r.tool}")
+                console.print(f"  error: {r.error}")
 
 
 @app.command("interactive")
