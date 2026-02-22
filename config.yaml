@@ -1,0 +1,14 @@
+llm:
+  enabled: true
+  timeout: 60
+
+  primary_model_path: "models/qwen.gguf"
+  fallback_model_path: "models/phi.gguf"
+
+  n_ctx: 2048
+  max_tokens: 160
+  temperature: 0.0
+
+gpu:
+  enable: true
+  n_gpu_layers: 25

@@ -8,3 +8,6 @@ echo .pytest_cache/>> .gitignore
 echo .mypy_cache/>> .gitignore
 echo .cortex/>> .gitignore
 echo .env>> .gitignore
+# LLM models
+models/
+*.gguf

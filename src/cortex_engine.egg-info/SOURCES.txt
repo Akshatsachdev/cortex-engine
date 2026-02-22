@@ -7,6 +7,9 @@ src/cortex/agent/__init__.py
 src/cortex/agent/executor.py
 src/cortex/agent/loop.py
 src/cortex/agent/models.py
+src/cortex/llm/__init__.py
+src/cortex/llm/planner.py
+src/cortex/llm/provider_llamacpp.py
 src/cortex/runtime/__init__.py
 src/cortex/runtime/config.py
 src/cortex/runtime/logging.py

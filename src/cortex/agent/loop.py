@@ -1,5 +1,6 @@
 from __future__ import annotations
-
+from cortex.llm.planner import build_plan
+from cortex.tools.registry import list_tools
 from cortex.agent.models import Plan, Step, RunResult
 from cortex.runtime.session import new_session
 from cortex.runtime.logging import append_jsonl, session_log_path
@@ -27,31 +28,38 @@ def build_stub_plan(task: str) -> Plan:
 
 
 def run_task(task: str, dry_run: bool = True) -> RunResult:
+    allowed_tools = [t.name for t in list_tools()]
     session = new_session()
     logp = session_log_path(session.session_id)
 
     append_jsonl(
         logp,
-        {"event": "session_start", "session_id": session.session_id, "task": task, "dry_run": dry_run},
+        {"type": "session_start", "session_id": session.session_id,
+            "task": task, "dry_run": dry_run},
     )
 
-    plan = build_stub_plan(task)
+    plan = build_plan(task=task, allowed_tools=allowed_tools,
+                      session_id=session.session_id)
     validate_plan_or_raise(plan)
 
     append_jsonl(
         logp,
-        {"event": "plan_validated", "session_id": session.session_id, "plan": plan.model_dump()},
+        {"type": "plan_validated", "session_id": session.session_id,
+            "plan": plan.model_dump()},
     )
 
     results = []
     if not dry_run:
-        results = execute_plan(session_id=session.session_id, plan=plan, log_path=logp)
+        results = execute_plan(
+            session_id=session.session_id, plan=plan, log_path=logp)
 
-    result = RunResult(session_id=session.session_id, dry_run=dry_run, plan=plan, results=results)
+    result = RunResult(session_id=session.session_id,
+                       dry_run=dry_run, plan=plan, results=results)
 
     append_jsonl(
         logp,
-        {"event": "run_result", "session_id": session.session_id, "result": result.model_dump()},
+        {"type": "run_result", "session_id": session.session_id,
+            "result": result.model_dump()},
     )
 
     return result
