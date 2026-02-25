@@ -11,11 +11,11 @@ def run_cli(*args: str) -> subprocess.CompletedProcess:
     Run Cortex CLI via python -m cortex.cli so CI doesn't rely on PATH console script.
     """
     return subprocess.run(
-    [sys.executable, "-m", "cortex.cli", *args],
-    capture_output=True,
-    text=True,
-    check=False,  # explicitly handled via assertions
-)
+        [sys.executable, "-m", "cortex.cli", *args],
+        capture_output=True,
+        text=True,
+        check=False,  # explicitly handled via assertions
+    )
 
 
 def test_cli_help():
@@ -52,19 +52,21 @@ def test_commands_and_logs():
     logs_dir = data_dir / "logs"
     assert logs_dir.exists(), f"Logs dir not found: {logs_dir}"
 
-    logs = sorted(logs_dir.glob("session_*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+    logs = sorted(logs_dir.glob("session_*.jsonl"),
+                  key=lambda p: p.stat().st_mtime, reverse=True)
     assert logs, f"No session logs found in: {logs_dir}"
 
     latest = logs[0]
     lines = latest.read_text(encoding="utf-8").splitlines()
-    assert len(lines) >= 2, f"Expected >=2 JSONL lines in {latest}, got {len(lines)}"
+    assert len(
+        lines) >= 2, f"Expected >=2 JSONL lines in {latest}, got {len(lines)}"
 
     events = [json.loads(line) for line in lines]
-    ev_names = {e.get("event") for e in events}
+    ev_names = {e.get("type") for e in events}
     assert "session_start" in ev_names
     assert "plan_validated" in ev_names
 
-    plan_event = next(e for e in events if e.get("event") == "plan_validated")
+    plan_event = next(e for e in events if e.get("type") == "plan_validated")
     steps = plan_event["plan"]["steps"]
     assert steps and isinstance(steps, list)
 
