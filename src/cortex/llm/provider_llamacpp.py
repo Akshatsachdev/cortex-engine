@@ -58,23 +58,55 @@ class LlamaCppProvider:
         log_path: Path,
         stop: Optional[list[str]] = None,
     ) -> LlamaCppGenResult:
-        append_jsonl(log_path, {"type": "llm_start", "model": self.model_path})
+        append_jsonl(log_path, {"type": "llm_start",
+                     "model": self.model_path})
 
         t0 = time.time()
-        out = self._llm(
-            prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            stop=stop or [],
-        )
-        dt = time.time() - t0
+        try:
+            out = self._llm(
+                prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stop=stop or [],
+            )
+            dt = time.time() - t0
 
-        text = out["choices"][0]["text"]
+            # Soft timeout guard
+            if self.timeout and dt > self.timeout:
+                append_jsonl(
+                    log_path,
+                    {
+                        "type": "llm_error",
+                        "model": self.model_path,
+                        "error": f"timeout_exceeded (dt={round(dt, 3)}s > timeout={self.timeout}s)",
+                    },
+                )
+                raise TimeoutError(
+                    f"LLM generation exceeded timeout={self.timeout}s (dt={dt:.3f}s)"
+                )
 
-        append_jsonl(
-            log_path,
-            {"type": "llm_success", "model": self.model_path,
-                "duration_sec": round(dt, 3)},
-        )
+            text = out["choices"][0]["text"]
 
-        return LlamaCppGenResult(text=text, model_path=self.model_path, duration_sec=dt)
+            append_jsonl(
+                log_path,
+                {
+                    "type": "llm_success",
+                    "model": self.model_path,
+                    "duration_sec": round(dt, 3),
+                },
+            )
+
+            return LlamaCppGenResult(text=text, model_path=self.model_path, duration_sec=dt)
+
+        except Exception as e:
+            dt = time.time() - t0
+            append_jsonl(
+                log_path,
+                {
+                    "type": "llm_error",
+                    "model": self.model_path,
+                    "duration_sec": round(dt, 3),
+                    "error": str(e),
+                },
+            )
+            raise

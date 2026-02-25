@@ -62,11 +62,23 @@ def test_commands_and_logs():
         lines) >= 2, f"Expected >=2 JSONL lines in {latest}, got {len(lines)}"
 
     events = [json.loads(line) for line in lines]
-    ev_names = {e.get("type") for e in events}
+
+    def ev_name(e: dict):
+        return e.get("event") or e.get("type")
+
+    ev_names = {ev_name(e) for e in events}
     assert "session_start" in ev_names
     assert "plan_validated" in ev_names
 
-    plan_event = next(e for e in events if e.get("type") == "plan_validated")
+    # Find the plan_validated event that contains the full plan (loop writes {"plan": ...})
+    plan_event = next(
+        (e for e in events if ev_name(e) ==
+         "plan_validated" and isinstance(e.get("plan"), dict)),
+        None,
+    )
+
+    assert plan_event is not None, "plan_validated event with full 'plan' not found in logs"
+
     steps = plan_event["plan"]["steps"]
     assert steps and isinstance(steps, list)
 

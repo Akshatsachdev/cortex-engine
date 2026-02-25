@@ -11,6 +11,8 @@ from cortex.security.policy_engine import validate_plan_or_raise
 from cortex.llm.json_extract import extract_first_json_object
 from cortex.llm.provider_llamacpp import LlamaCppProvider
 
+from cortex.llm.errors import PlannerAbortError
+
 
 def _build_prompt(task: str, allowed_tools: List[str]) -> str:
     # Keep it short. Template-first. No long “rules list”.
@@ -51,6 +53,10 @@ def _inject_allowed_paths(plan_dict: Dict[str, Any]) -> None:
             params = {}
             s["params"] = params
 
+            # Default required params for filesystem.list
+        if tool == "filesystem.list" and "path" not in params:
+            params["path"] = "."
+
         # Inject allowed_paths for filesystem tools (and generally safe to include)
         if tool.startswith("filesystem.") and "allowed_paths" not in params:
             params["allowed_paths"] = allowed_paths
@@ -72,36 +78,93 @@ def _inject_step_ids(plan_dict: dict) -> None:
 def build_plan(task: str, allowed_tools: List[str], session_id: str) -> Plan:
     cfg = get_config()
 
-    # LLM disabled → fallback to stub
+    # LLM disabled → fallback to stub (unchanged)
     if not cfg.llm.enabled:
         from cortex.agent.loop import build_stub_plan  # local import to avoid circular
         return build_stub_plan(task)
 
-    # LLM enabled but llama-cpp not installed → fallback
+    # llama-cpp not installed → fallback to stub (keeps CI safe)
     try:
-        from llama_cpp import Llama  # noqa
+        from llama_cpp import Llama  # noqa: F401
     except Exception:
         from cortex.agent.loop import build_stub_plan
         return build_stub_plan(task)
 
     log_path = session_log_path(session_id)
+    prompt = _build_prompt(task, allowed_tools)
 
-    # Model missing / provider fails → fallback
+    # ---------- PRIMARY ----------
     try:
-        provider = LlamaCppProvider(
+        provider_primary = LlamaCppProvider(
             model_path=cfg.llm.primary_model_path,
             n_ctx=cfg.llm.n_ctx,
             n_gpu_layers=cfg.gpu.n_gpu_layers if cfg.gpu.enable else 0,
             timeout=cfg.llm.timeout,
         )
-    except Exception:
-        from cortex.agent.loop import build_stub_plan
-        return build_stub_plan(task)
+    except Exception as e:
+        append_jsonl(
+            log_path, {"type": "llm_primary_failed", "error": f"load_error: {e}"})
+        provider_primary = None
 
-    prompt = _build_prompt(task, allowed_tools)
+    if provider_primary is not None:
+        try:
+            return _try_build_plan_with_provider(
+                provider=provider_primary,
+                prompt=prompt,
+                session_id=session_id,
+            )
+        except Exception as e:
+            append_jsonl(
+                log_path, {"type": "llm_primary_failed", "error": str(e)})
+
+    # ---------- FAILOVER ----------
+    try:
+        provider_fallback = LlamaCppProvider(
+            model_path=cfg.llm.fallback_model_path,
+            n_ctx=cfg.llm.n_ctx,
+            n_gpu_layers=cfg.gpu.n_gpu_layers if cfg.gpu.enable else 0,
+            timeout=cfg.llm.timeout,
+        )
+    except Exception as e:
+        append_jsonl(log_path, {"type": "llm_abort",
+                     "reason": f"fallback_load_error: {e}"})
+        raise PlannerAbortError(
+            f"Primary failed and fallback failed to load: {e}"
+        ) from e
+
+    append_jsonl(
+        log_path,
+        {
+            "type": "llm_failover_used",
+            "fallback_model_path": cfg.llm.fallback_model_path,
+        },
+    )
+
+    try:
+        return _try_build_plan_with_provider(
+            provider=provider_fallback,
+            prompt=prompt,
+            session_id=session_id,
+        )
+    except Exception as e:
+        append_jsonl(log_path, {"type": "llm_abort", "reason": str(e)})
+        raise PlannerAbortError(
+            f"Both primary and fallback planning failed: {e}"
+        ) from e
+
+
+def _try_build_plan_with_provider(
+    *,
+    provider: LlamaCppProvider,
+    prompt: str,
+    session_id: str,
+) -> Plan:
+    cfg = get_config()
+    log_path = session_log_path(session_id)
 
     last_err: Exception | None = None
 
+    # Phase 1.4: invalid JSON retry stays per-model, then failover triggers
     for attempt in range(2):
         raw = provider.generate(
             prompt=prompt,
@@ -116,15 +179,15 @@ def build_plan(task: str, allowed_tools: List[str], session_id: str) -> Plan:
 
             _inject_step_ids(data)
 
-            # Inject allowed_paths before validation (locked requirement)
+            # Locked requirement
             _inject_allowed_paths(data)
 
-            # Validate via Pydantic model
             plan = Plan.model_validate(data)
 
-            # Validate via policy engine
             validate_plan_or_raise(plan)
 
+            append_jsonl(
+                log_path, {"type": "plan_validated", "steps": len(plan.steps)})
             return plan
 
         except Exception as e:
@@ -136,6 +199,7 @@ def build_plan(task: str, allowed_tools: List[str], session_id: str) -> Plan:
                     "attempt": attempt + 1,
                     "error": str(e),
                     "raw_preview": raw[:800],
+                    "model": provider.model_path,
                 },
             )
 
