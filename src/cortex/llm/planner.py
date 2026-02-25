@@ -77,14 +77,26 @@ def build_plan(task: str, allowed_tools: List[str], session_id: str) -> Plan:
         from cortex.agent.loop import build_stub_plan  # local import to avoid circular
         return build_stub_plan(task)
 
+    # LLM enabled but llama-cpp not installed → fallback
+    try:
+        from llama_cpp import Llama  # noqa
+    except Exception:
+        from cortex.agent.loop import build_stub_plan
+        return build_stub_plan(task)
+
     log_path = session_log_path(session_id)
 
-    provider = LlamaCppProvider(
-        model_path=cfg.llm.primary_model_path,
-        n_ctx=cfg.llm.n_ctx,
-        n_gpu_layers=cfg.gpu.n_gpu_layers if cfg.gpu.enable else 0,
-        timeout=cfg.llm.timeout,
-    )
+    # Model missing / provider fails → fallback
+    try:
+        provider = LlamaCppProvider(
+            model_path=cfg.llm.primary_model_path,
+            n_ctx=cfg.llm.n_ctx,
+            n_gpu_layers=cfg.gpu.n_gpu_layers if cfg.gpu.enable else 0,
+            timeout=cfg.llm.timeout,
+        )
+    except Exception:
+        from cortex.agent.loop import build_stub_plan
+        return build_stub_plan(task)
 
     prompt = _build_prompt(task, allowed_tools)
 
