@@ -8,7 +8,7 @@ APP_NAME = "cortex"
 
 DEFAULT_CONFIG: dict = {
     "secure_mode": False,
-    "allowed_paths": [],  # empty => default HOME in code
+    "allowed_paths": [],
     "llm": {
         "enabled": False,
         "backend": "llama_cpp",
@@ -18,10 +18,10 @@ DEFAULT_CONFIG: dict = {
         "temperature": 0.1,
         "max_tokens": 1200,
         "timeout_seconds": 60,
-        "gpu": {
-            "enable": True,
-            "n_gpu_layers": 40,
-        },
+    },
+    "gpu": {
+        "enable": True,
+        "n_gpu_layers": 40,
     },
     "tools": {
         "filesystem": {"enabled": True},
@@ -29,6 +29,16 @@ DEFAULT_CONFIG: dict = {
         "email": {"enabled": False, "send_enabled": False},
     },
 }
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    out = dict(base)
+    for k, v in (override or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
 
 
 def config_dir() -> Path:
@@ -57,10 +67,11 @@ def load_config() -> dict:
     p = config_path()
     if not p.exists():
         return DEFAULT_CONFIG.copy()
+
     with p.open("r", encoding="utf-8") as f:
         loaded = yaml.safe_load(f) or {}
-    merged = DEFAULT_CONFIG.copy()
-    merged.update(loaded)
+
+    merged = _deep_merge(DEFAULT_CONFIG, loaded)
     return merged
 
 

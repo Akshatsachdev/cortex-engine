@@ -12,7 +12,10 @@ from cortex.tools.filesystem import fs_list
 from cortex.tools.registry import register, list_tools
 from cortex.agent.loop import run_task
 
-app = typer.Typer(add_completion=False, help="Cortex Engine — secure local-first runtime.")
+from cortex.cli_llm import app as llm_app
+
+app = typer.Typer(add_completion=False,
+                  help="Cortex Engine — secure local-first runtime.")
 console = Console()
 
 config_app = typer.Typer(help="Config management")
@@ -24,6 +27,7 @@ app.add_typer(config_app, name="config")
 app.add_typer(permissions_app, name="permissions")
 app.add_typer(tools_app, name="tools")
 app.add_typer(sandbox_app, name="sandbox")
+app.add_typer(llm_app, name="llm")
 
 
 def _bootstrap_tools() -> None:
@@ -67,7 +71,8 @@ def tools_list() -> None:
 
 @sandbox_app.command("check")
 def sandbox_check(
-    path: str = typer.Argument(..., help="Path to test against sandbox allowlist")
+    path: str = typer.Argument(...,
+                               help="Path to test against sandbox allowlist")
 ) -> None:
     cfg = load_config()
     allowed = cfg.get("allowed_paths") or []
@@ -82,11 +87,13 @@ def sandbox_check(
 @app.command("run")
 def run(
     task: str = typer.Argument(..., help="Natural language task"),
-    dry_run: bool = typer.Option(True, "--dry-run/--execute", help="Dry run prints plan only"),
+    dry_run: bool = typer.Option(
+        True, "--dry-run/--execute", help="Dry run prints plan only"),
 ) -> None:
     result = run_task(task, dry_run=dry_run)
 
-    console.print(Panel.fit(("Plan Generated (dry-run)" if dry_run else "Plan Executed"), title=f"session {result.session_id}"))
+    console.print(Panel.fit(("Plan Generated (dry-run)" if dry_run else "Plan Executed"),
+                  title=f"session {result.session_id}"))
 
     for s in result.plan.steps:
         console.print(f"[bold]{s.id}[/bold] {s.description}")
@@ -107,7 +114,8 @@ def run(
 
 @app.command("interactive")
 def interactive() -> None:
-    console.print(Panel.fit("Cortex Interactive (Phase 1.1: dry-run only)", title="cortex"))
+    console.print(
+        Panel.fit("Cortex Interactive (Phase 1.1: dry-run only)", title="cortex"))
     console.print("[dim]Type 'exit' to quit.[/dim]")
 
     while True:
@@ -115,7 +123,8 @@ def interactive() -> None:
         if task.lower() in {"exit", "quit"}:
             break
         result = run_task(task, dry_run=True)
-        console.print(f"[green]session[/green] {result.session_id} plan steps: {len(result.plan.steps)}")
+        console.print(
+            f"[green]session[/green] {result.session_id} plan steps: {len(result.plan.steps)}")
 
 
 @app.command("install-shortcut")
