@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from cortex.llm.planner import build_plan
 from cortex.tools.registry import list_tools
 from cortex.agent.models import Plan, Step, RunResult
@@ -8,6 +9,57 @@ from cortex.security.policy_engine import validate_plan_or_raise
 from cortex.runtime.config import load_config
 from cortex.agent.executor import execute_plan
 from cortex.llm.errors import PlannerAbortError
+from cortex.tools.registry import get as get_tool
+
+
+def _request_approval(step: Step, *, non_interactive: bool, logp, session_id: str) -> bool:
+    append_jsonl(
+        logp,
+        {
+            "event": "approval_requested",
+            "session_id": session_id,
+            "step_id": step.id,
+            "tool": step.tool,
+            "risk_level": step.risk_level,
+        },
+    )
+
+    if non_interactive:
+        append_jsonl(
+            logp,
+            {
+                "event": "approval_denied",
+                "session_id": session_id,
+                "step_id": step.id,
+                "tool": step.tool,
+                "reason": "non_interactive",
+            },
+        )
+        return False
+
+    rl = (step.risk_level or "SAFE").upper()
+
+    if rl == "MODIFY":
+        ans = input(
+            f"\nApprove MODIFY step {step.id} ({step.tool})? [y/N]: ").strip().lower()
+        ok = ans in ("y", "yes")
+    elif rl == "CRITICAL":
+        ans = input(
+            f"\nType YES to approve CRITICAL step {step.id} ({step.tool}): ").strip()
+        ok = ans == "YES"
+    else:
+        ok = True  # SAFE
+
+    append_jsonl(
+        logp,
+        {
+            "event": "approval_granted" if ok else "approval_denied",
+            "session_id": session_id,
+            "step_id": step.id,
+            "tool": step.tool,
+        },
+    )
+    return ok
 
 
 def build_stub_plan(task: str) -> Plan:
@@ -28,7 +80,7 @@ def build_stub_plan(task: str) -> Plan:
     )
 
 
-def run_task(task: str, dry_run: bool = True) -> RunResult:
+def run_task(task: str, dry_run: bool = True, non_interactive: bool = False) -> RunResult:
     allowed_tools = [t.name for t in list_tools()]
     session = new_session()
     logp = session_log_path(session.session_id)
@@ -36,13 +88,17 @@ def run_task(task: str, dry_run: bool = True) -> RunResult:
     append_jsonl(
         logp,
         {
-            "type": "session_start",
+            "event": "session_start",
             "session_id": session.session_id,
             "task": task,
             "dry_run": dry_run,
+            "non_interactive": non_interactive,
         },
     )
 
+    # ---------------------------
+    # Build + validate plan
+    # ---------------------------
     try:
         plan = build_plan(task=task, allowed_tools=allowed_tools,
                           session_id=session.session_id)
@@ -58,7 +114,6 @@ def run_task(task: str, dry_run: bool = True) -> RunResult:
         )
 
     except PlannerAbortError as e:
-        # HARD STOP: do not execute tools
         abort_plan = build_stub_plan(f"ABORTED: {task}")
 
         append_jsonl(
@@ -70,25 +125,13 @@ def run_task(task: str, dry_run: bool = True) -> RunResult:
             },
         )
 
-        result = RunResult(
-            session_id=session.session_id,
-            dry_run=dry_run,
-            plan=abort_plan,
-            results=[],
-        )
-
-        append_jsonl(
-            logp,
-            {
-                "event": "run_result",
-                "session_id": session.session_id,
-                "result": result.model_dump(),
-            },
-        )
+        result = RunResult(session_id=session.session_id,
+                           dry_run=dry_run, plan=abort_plan, results=[])
+        append_jsonl(logp, {"event": "run_result",
+                     "session_id": session.session_id, "result": result.model_dump()})
         return result
 
     except Exception as e:
-        # Any other planner/validation failure: still stop safely (no tools)
         fail_plan = build_stub_plan(f"FAILED: {task}")
 
         append_jsonl(
@@ -100,38 +143,80 @@ def run_task(task: str, dry_run: bool = True) -> RunResult:
             },
         )
 
-        result = RunResult(
-            session_id=session.session_id,
-            dry_run=dry_run,
-            plan=fail_plan,
-            results=[],
-        )
+        result = RunResult(session_id=session.session_id,
+                           dry_run=dry_run, plan=fail_plan, results=[])
+        append_jsonl(logp, {"event": "run_result",
+                     "session_id": session.session_id, "result": result.model_dump()})
+        return result
+
+    # ---------------------------
+    # Execution
+    # ---------------------------
+    results = []
+
+    if not dry_run:
+        approved_steps = []
+
+        for step in plan.steps:
+            # ✅ Production: registry risk is source of truth
+            tool_spec = get_tool(step.tool)
+            tool_risk = (tool_spec.risk or "SAFE").upper()
+
+            # Keep plan consistent with registry risk (UI + audit correctness)
+            step = step.model_copy(
+                update={
+                    "risk_level": tool_risk,
+                    "requires_approval": tool_risk in ("MODIFY", "CRITICAL"),
+                }
+            )
+
+            needs = tool_risk in ("MODIFY", "CRITICAL")
+
+            if needs:
+                ok = _request_approval(
+                    step,
+                    non_interactive=non_interactive,
+                    logp=logp,
+                    session_id=session.session_id,
+                )
+                if not ok:
+                    # Abort: no execution
+                    result = RunResult(
+                        session_id=session.session_id, dry_run=dry_run, plan=plan, results=[])
+                    append_jsonl(logp, {
+                                 "event": "run_result", "session_id": session.session_id, "result": result.model_dump()})
+                    return result
+
+                step = step.model_copy(update={"approved": True})
+
+            approved_steps.append(step)
+
+        # Replace plan with approved plan
+        plan = plan.model_copy(update={"steps": approved_steps})
 
         append_jsonl(
             logp,
             {
-                "event": "run_result",
+                "event": "execution_authorized",
                 "session_id": session.session_id,
-                "result": result.model_dump(),
+                "approved_map": {s.id: getattr(s, "approved", False) for s in plan.steps},
             },
         )
-        return result
 
-    results = []
-    if not dry_run:
+        # Execute
         results = execute_plan(
             session_id=session.session_id, plan=plan, log_path=logp)
 
+    # ---------------------------
+    # Final result (ALWAYS)
+    # ---------------------------
     result = RunResult(session_id=session.session_id,
                        dry_run=dry_run, plan=plan, results=results)
 
     append_jsonl(
         logp,
-        {
-            "event": "run_result",
-            "session_id": session.session_id,
-            "result": result.model_dump(),
-        },
+        {"event": "run_result", "session_id": session.session_id,
+            "result": result.model_dump()},
     )
 
     return result

@@ -31,7 +31,6 @@ app.add_typer(llm_app, name="llm")
 
 
 def _bootstrap_tools() -> None:
-    # Phase 1.1: register SAFE tools only
     register(ToolSpec(name="filesystem.list", risk="SAFE", fn=fs_list))
 
 
@@ -89,8 +88,10 @@ def run(
     task: str = typer.Argument(..., help="Natural language task"),
     dry_run: bool = typer.Option(
         True, "--dry-run/--execute", help="Dry run prints plan only"),
+    non_interactive: bool = typer.Option(
+        False, "--non-interactive", help="Fail if approval is required"),
 ) -> None:
-    result = run_task(task, dry_run=dry_run)
+    result = run_task(task, dry_run=dry_run, non_interactive=non_interactive)
 
     console.print(Panel.fit(("Plan Generated (dry-run)" if dry_run else "Plan Executed"),
                   title=f"session {result.session_id}"))
@@ -110,6 +111,9 @@ def run(
             else:
                 console.print(f"[red]FAIL[/red] {r.step_id} {r.tool}")
                 console.print(f"  error: {r.error}")
+        if not result.results:
+            console.print(
+                "[yellow]No steps executed (approval denied or dry-run).[/yellow]")
 
 
 @app.command("interactive")

@@ -14,6 +14,9 @@ class Step(BaseModel):
     risk_level: RiskLevel = "SAFE"
     requires_approval: bool = False
 
+    # Phase 1.6: runtime approval flag
+    approved: bool = False
+
 
 class Plan(BaseModel):
     steps: List[Step]

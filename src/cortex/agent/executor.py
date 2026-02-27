@@ -21,13 +21,22 @@ def execute_plan(
     for step in plan.steps:
         tool_spec = get_tool(step.tool)
 
-        # Phase 1.2: SAFE-only execution
-        if tool_spec.risk != "SAFE":
-            raise ExecutionDenied(f"Non-SAFE tool blocked in Phase 1.2: {step.tool} ({tool_spec.risk})")
+        # Phase 1.6: approval enforcement
+        # ToolSpec risk is source-of-truth for execution risk
+        if tool_spec.risk in ("MODIFY", "CRITICAL") and not getattr(step, "approved", False):
+            raise ExecutionDenied(
+                f"Approval required but not granted: {step.tool} ({tool_spec.risk})"
+            )
 
         append_jsonl(
             log_path,
-            {"event": "tool_start", "session_id": session_id, "step_id": step.id, "tool": step.tool, "params": step.params},
+            {
+                "event": "tool_start",
+                "session_id": session_id,
+                "step_id": step.id,
+                "tool": step.tool,
+                "params": step.params,
+            },
         )
 
         try:
@@ -36,15 +45,34 @@ def execute_plan(
 
             append_jsonl(
                 log_path,
-                {"event": "tool_result", "session_id": session_id, "step_id": step.id, "tool": step.tool, "ok": True},
+                {
+                    "event": "tool_result",
+                    "session_id": session_id,
+                    "step_id": step.id,
+                    "tool": step.tool,
+                    "ok": True,
+                },
             )
 
-            results.append(StepResult(step_id=step.id, tool=step.tool, ok=True, output=output))
+            results.append(
+                StepResult(step_id=step.id, tool=step.tool,
+                           ok=True, output=output)
+            )
         except Exception as e:
             append_jsonl(
                 log_path,
-                {"event": "tool_error", "session_id": session_id, "step_id": step.id, "tool": step.tool, "ok": False, "error": str(e)},
+                {
+                    "event": "tool_error",
+                    "session_id": session_id,
+                    "step_id": step.id,
+                    "tool": step.tool,
+                    "ok": False,
+                    "error": str(e),
+                },
             )
-            results.append(StepResult(step_id=step.id, tool=step.tool, ok=False, error=str(e)))
+            results.append(
+                StepResult(step_id=step.id, tool=step.tool,
+                           ok=False, error=str(e))
+            )
 
     return results
