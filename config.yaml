@@ -12,3 +12,8 @@ llm:
 gpu:
   enable: true
   n_gpu_layers: 25
+
+secure:
+  enabled: false
+  password_hash: null
+  allowed_paths: []

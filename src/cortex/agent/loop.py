@@ -10,6 +10,7 @@ from cortex.runtime.config import load_config
 from cortex.agent.executor import execute_plan
 from cortex.llm.errors import PlannerAbortError
 from cortex.tools.registry import get as get_tool
+from cortex.runtime.config import effective_allowed_paths
 
 
 def _request_approval(step: Step, *, non_interactive: bool, logp, session_id: str) -> bool:
@@ -64,7 +65,7 @@ def _request_approval(step: Step, *, non_interactive: bool, logp, session_id: st
 
 def build_stub_plan(task: str) -> Plan:
     cfg = load_config()
-    allowed_paths = cfg.get("allowed_paths") or []
+    allowed_paths = effective_allowed_paths(cfg)
 
     return Plan(
         steps=[
@@ -100,8 +101,11 @@ def run_task(task: str, dry_run: bool = True, non_interactive: bool = False) -> 
     # Build + validate plan
     # ---------------------------
     try:
-        plan = build_plan(task=task, allowed_tools=allowed_tools,
-                          session_id=session.session_id)
+        plan = build_plan(
+            task=task,
+            allowed_tools=allowed_tools,
+            session_id=session.session_id,
+        )
         validate_plan_or_raise(plan)
 
         append_jsonl(
@@ -119,20 +123,72 @@ def run_task(task: str, dry_run: bool = True, non_interactive: bool = False) -> 
         append_jsonl(
             logp,
             {
+                "event": "plan_validated",
+                "session_id": session.session_id,
+                "plan": abort_plan.model_dump(),
+                "fallback": True,
+                "reason": "llm_abort",
+            },
+        )
+
+        append_jsonl(
+            logp,
+            {
                 "event": "llm_abort",
                 "session_id": session.session_id,
                 "reason": str(e),
             },
         )
 
-        result = RunResult(session_id=session.session_id,
-                           dry_run=dry_run, plan=abort_plan, results=[])
-        append_jsonl(logp, {"event": "run_result",
-                     "session_id": session.session_id, "result": result.model_dump()})
+        fallback_results = []
+        if not dry_run:
+            append_jsonl(
+                logp,
+                {
+                    "event": "execution_authorized",
+                    "session_id": session.session_id,
+                    "approved_map": {s.id: True for s in abort_plan.steps},
+                    "fallback": True,
+                    "reason": "llm_abort",
+                },
+            )
+
+            fallback_results = execute_plan(
+                session_id=session.session_id,
+                plan=abort_plan,
+                log_path=logp,
+            )
+
+        result = RunResult(
+            session_id=session.session_id,
+            dry_run=dry_run,
+            plan=abort_plan,
+            results=fallback_results,
+        )
+
+        append_jsonl(
+            logp,
+            {
+                "event": "run_result",
+                "session_id": session.session_id,
+                "result": result.model_dump(),
+            },
+        )
         return result
 
     except Exception as e:
         fail_plan = build_stub_plan(f"FAILED: {task}")
+
+        append_jsonl(
+            logp,
+            {
+                "event": "plan_validated",
+                "session_id": session.session_id,
+                "plan": fail_plan.model_dump(),
+                "fallback": True,
+                "reason": "run_failed",
+            },
+        )
 
         append_jsonl(
             logp,
@@ -143,10 +199,40 @@ def run_task(task: str, dry_run: bool = True, non_interactive: bool = False) -> 
             },
         )
 
-        result = RunResult(session_id=session.session_id,
-                           dry_run=dry_run, plan=fail_plan, results=[])
-        append_jsonl(logp, {"event": "run_result",
-                     "session_id": session.session_id, "result": result.model_dump()})
+        fallback_results = []
+        if not dry_run:
+            append_jsonl(
+                logp,
+                {
+                    "event": "execution_authorized",
+                    "session_id": session.session_id,
+                    "approved_map": {s.id: True for s in fail_plan.steps},
+                    "fallback": True,
+                    "reason": "run_failed",
+                },
+            )
+
+            fallback_results = execute_plan(
+                session_id=session.session_id,
+                plan=fail_plan,
+                log_path=logp,
+            )
+
+        result = RunResult(
+            session_id=session.session_id,
+            dry_run=dry_run,
+            plan=fail_plan,
+            results=fallback_results,
+        )
+
+        append_jsonl(
+            logp,
+            {
+                "event": "run_result",
+                "session_id": session.session_id,
+                "result": result.model_dump(),
+            },
+        )
         return result
 
     # ---------------------------

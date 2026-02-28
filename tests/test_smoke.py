@@ -5,6 +5,12 @@ from pathlib import Path
 
 from platformdirs import user_data_dir
 
+from typer.testing import CliRunner
+
+from cortex.cli import app
+from cortex.runtime.config import load_config, save_config
+from cortex.security.passwords import verify_password
+
 
 def run_cli(*args: str) -> subprocess.CompletedProcess:
     """
@@ -84,3 +90,63 @@ def test_commands_and_logs():
 
     params = steps[0].get("params", {})
     assert "allowed_paths" in params, f"'allowed_paths' missing in plan params. got: {params}"
+
+
+runner = CliRunner()
+
+
+def test_secure_mode_enable_disable(monkeypatch):
+    # 1) init config
+    r = runner.invoke(app, ["config", "init"])
+    assert r.exit_code == 0, r.output
+
+    # 2) monkeypatch getpass used by the secure CLI
+    # If cli.py has: `from getpass import getpass`
+    # then patch: "cortex.cli.getpass"
+    monkeypatch.setattr("cortex.cli.getpass", lambda prompt="": "testpass123")
+
+    # 3) enable secure mode
+    r = runner.invoke(app, ["secure", "enable"])
+    assert r.exit_code == 0, r.output
+
+    cfg = load_config()
+    secure_cfg = cfg.get("secure") or {}
+
+    assert secure_cfg.get("enabled") is True
+    assert secure_cfg.get("password_hash") is not None
+    assert verify_password(
+        "testpass123", secure_cfg.get("password_hash")) is True
+
+    # 4) disable secure mode
+    r = runner.invoke(app, ["secure", "disable"])
+    assert r.exit_code == 0, r.output
+
+    cfg = load_config()
+    secure_cfg = cfg.get("secure") or {}
+
+    assert secure_cfg.get("enabled") is False
+
+
+def test_secure_allowed_paths_commands():
+    # init config
+    r = runner.invoke(app, ["config", "init"])
+    assert r.exit_code == 0, r.output
+
+    # allow-path
+    r = runner.invoke(app, ["secure", "allow-path", "."])
+    assert r.exit_code == 0, r.output
+
+    cfg = load_config()
+    secure_cfg = cfg.get("secure") or {}
+
+    assert isinstance(secure_cfg.get("allowed_paths"), list)
+    assert len(secure_cfg.get("allowed_paths")) >= 1
+
+    # clear-paths
+    r = runner.invoke(app, ["secure", "clear-paths"])
+    assert r.exit_code == 0, r.output
+
+    cfg = load_config()
+    secure_cfg = cfg.get("secure") or {}
+
+    assert secure_cfg.get("allowed_paths") == []

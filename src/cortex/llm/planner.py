@@ -12,6 +12,7 @@ from cortex.llm.json_extract import extract_first_json_object
 from cortex.llm.provider_llamacpp import LlamaCppProvider
 
 from cortex.llm.errors import PlannerAbortError
+from cortex.runtime.config import effective_allowed_paths, load_config
 
 
 def _build_prompt(task: str, allowed_tools: List[str]) -> str:
@@ -37,7 +38,7 @@ def _inject_allowed_paths(plan_dict: Dict[str, Any]) -> None:
     Source of truth: runtime config used by stub planner.
     """
     cfg = load_config()
-    allowed_paths = cfg.get("allowed_paths") or []
+    allowed_paths = effective_allowed_paths(cfg)
 
     steps = plan_dict.get("steps") or []
     if not isinstance(steps, list):

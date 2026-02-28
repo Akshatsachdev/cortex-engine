@@ -7,7 +7,6 @@ from platformdirs import user_config_dir, user_data_dir
 APP_NAME = "cortex"
 
 DEFAULT_CONFIG: dict = {
-    "secure_mode": False,
     "allowed_paths": [],
     "llm": {
         "enabled": False,
@@ -18,6 +17,11 @@ DEFAULT_CONFIG: dict = {
         "temperature": 0.1,
         "max_tokens": 1200,
         "timeout_seconds": 60,
+    },
+    "secure": {
+        "enabled": False,
+        "password_hash": None,
+        "allowed_paths": [],
     },
     "gpu": {
         "enable": True,
@@ -81,3 +85,16 @@ def write_config(cfg: dict) -> Path:
     with p.open("w", encoding="utf-8") as f:
         yaml.safe_dump(cfg, f, sort_keys=False)
     return p
+
+
+def effective_allowed_paths(cfg: dict) -> list[str]:
+    secure = cfg.get("secure") or {}
+    if secure.get("enabled"):
+        return secure.get("allowed_paths") or []
+    return cfg.get("allowed_paths") or []
+
+# Backwards-compatible alias
+
+
+def save_config(cfg):
+    return write_config(cfg)

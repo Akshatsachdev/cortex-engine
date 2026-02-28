@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional, Any, Dict
+from typing import Optional, Any, Dict, List
 
 import yaml
 from platformdirs import user_data_dir
@@ -30,9 +30,16 @@ class GPUConfig(BaseModel):
     n_gpu_layers: int = 0
 
 
+class SecureConfig(BaseModel):
+    enabled: bool = False
+    password_hash: Optional[str] = None
+    allowed_paths: List[str] = Field(default_factory=list)
+
+
 class AppConfig(BaseModel):
     llm: LLMConfig = Field(default_factory=LLMConfig)
     gpu: GPUConfig = Field(default_factory=GPUConfig)
+    secure: SecureConfig = Field(default_factory=SecureConfig)
 
     # Optional future-proof keys (safe defaults)
     secure_mode: bool = False
@@ -89,7 +96,8 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
     data = yaml.safe_load(raw) or {}
     if not isinstance(data, dict):
         raise ValueError(
-            f"Config file must be a YAML mapping (dict), got: {type(data)}")
+            f"Config file must be a YAML mapping (dict), got: {type(data)}"
+        )
     return data
 
 
@@ -115,14 +123,25 @@ def get_config(force_reload: bool = False) -> AppConfig:
             chosen_path = p
             break
 
+    # ensure secure block exists (backward compatibility)
+    if "secure" not in merged or merged["secure"] is None:
+        merged["secure"] = SecureConfig().model_dump()
+
     cfg = AppConfig.model_validate(merged)
 
     # Basic normalization: expand paths
     cfg.llm.primary_model_path = str(
-        Path(cfg.llm.primary_model_path).expanduser())
+        Path(cfg.llm.primary_model_path).expanduser()
+    )
     cfg.llm.fallback_model_path = str(
-        Path(cfg.llm.fallback_model_path).expanduser())
+        Path(cfg.llm.fallback_model_path).expanduser()
+    )
     cfg.sandbox_root = str(Path(cfg.sandbox_root).expanduser())
+
+    # normalize secure.allowed_paths
+    cfg.secure.allowed_paths = [
+        str(Path(p).expanduser()) for p in cfg.secure.allowed_paths
+    ]
 
     _CONFIG_CACHE = cfg
     return cfg
@@ -134,3 +153,16 @@ def get_config_path() -> Optional[str]:
         if p.exists():
             return str(p)
     return None
+
+
+def save_config(cfg: AppConfig, path: Optional[Path] = None) -> None:
+    """
+    Persist config (including secure block) back to YAML.
+    """
+    if path is None:
+        data_dir = Path(user_data_dir("cortex"))
+        data_dir.mkdir(parents=True, exist_ok=True)
+        path = data_dir / "config.yaml"
+
+    data = cfg.model_dump()
+    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")
