@@ -106,7 +106,7 @@ def test_secure_mode_enable_disable(monkeypatch):
     monkeypatch.setattr("cortex.cli.getpass", lambda prompt="": "testpass123")
 
     # 3) enable secure mode
-    r = runner.invoke(app, ["secure", "enable"])
+    r = runner.invoke(app, ["secure", "enable"], input="YES\n")
     assert r.exit_code == 0, r.output
 
     cfg = load_config()

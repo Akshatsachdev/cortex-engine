@@ -10,15 +10,16 @@ from pathlib import Path
 from cortex.security.path_guard import enforce_allowed_path, PathViolation
 from cortex.runtime.config import load_config, write_config, config_path
 from cortex.tools.base import ToolSpec
-from cortex.tools.filesystem import fs_list
+from cortex.tools.filesystem import *
 from cortex.tools.registry import register, list_tools
 from cortex.agent.loop import run_task
-
 from cortex.cli_llm import app as llm_app
 from cortex.security.passwords import hash_password, verify_password
 from cortex.runtime.logging import audit_event
 
 from cortex.runtime.config import effective_allowed_paths
+
+from cortex.tools.filesystem import fs_delete
 
 app = typer.Typer(add_completion=False,
                   help="Cortex Engine — secure local-first runtime.")
@@ -40,6 +41,11 @@ app.add_typer(secure_app, name="secure")
 
 def _bootstrap_tools() -> None:
     register(ToolSpec(name="filesystem.list", risk="SAFE", fn=fs_list))
+    register(ToolSpec(name="filesystem.search", risk="SAFE", fn=fs_search))
+    register(ToolSpec(name="filesystem.read_text", risk="SAFE", fn=fs_read_text))
+    register(ToolSpec(name="filesystem.write_text",
+             risk="MODIFY", fn=fs_write_text))
+    register(ToolSpec(name="filesystem.delete", risk="CRITICAL", fn=fs_delete))
 
 
 @app.callback()
@@ -114,6 +120,12 @@ def secure_status():
 @secure_app.command("enable")
 def secure_enable():
     cfg = load_config()
+
+    confirm = input(
+        "Type YES to enable secure mode (SAFE tools only): ").strip()
+    if confirm.lower() != "yes":
+        typer.echo("Secure mode enable cancelled.")
+        raise typer.Exit(code=1)
 
     pw1 = getpass("Set secure mode password: ")
     pw2 = getpass("Confirm password: ")
