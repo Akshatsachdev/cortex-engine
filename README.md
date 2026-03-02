@@ -373,5 +373,5 @@ Always review tools before enabling them in production.
 
 # 🏁 Current Version
 
-`v0.1.5`
+`v0.1.7`
 ---
