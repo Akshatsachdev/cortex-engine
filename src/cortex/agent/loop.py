@@ -244,78 +244,78 @@ def run_task(task: str, dry_run: bool = True, non_interactive: bool = False) -> 
     if not dry_run:
         approved_steps = []
 
-    for step in plan.steps:
-        # ✅ Production: registry risk is source of truth
-        tool_spec = get_tool(step.tool)
-        tool_risk = (tool_spec.risk or "SAFE").upper()
+        for step in plan.steps:
+            # ✅ Production: registry risk is source of truth
+            tool_spec = get_tool(step.tool)
+            tool_risk = (tool_spec.risk or "SAFE").upper()
 
-        # 🔐 SECURE MODE CHECK
-        cfg = load_config()
-        secure_enabled = bool((cfg.get("secure") or {}).get("enabled"))
+            # 🔐 SECURE MODE CHECK
+            cfg = load_config()
+            secure_enabled = bool((cfg.get("secure") or {}).get("enabled"))
 
-        decision = secure_allows_tool(secure_enabled, tool_risk)
-        if not decision.allowed:
-            append_jsonl(
-                logp,
-                {
-                    "event": "secure_mode_blocked",
-                    "session_id": session.session_id,
-                    "step_id": step.id,
-                    "tool": step.tool,
-                    "risk_level": tool_risk,
-                    "reason": decision.reason,
-                },
-            )
+            decision = secure_allows_tool(secure_enabled, tool_risk)
+            if not decision.allowed:
+                append_jsonl(
+                    logp,
+                    {
+                        "event": "secure_mode_blocked",
+                        "session_id": session.session_id,
+                        "step_id": step.id,
+                        "tool": step.tool,
+                        "risk_level": tool_risk,
+                        "reason": decision.reason,
+                    },
+                )
 
-            # Abort execution cleanly
-            result = RunResult(
-                session_id=session.session_id,
-                dry_run=dry_run,
-                plan=plan,
-                results=[],
-            )
-
-            append_jsonl(
-                logp,
-                {
-                    "event": "run_result",
-                    "session_id": session.session_id,
-                    "result": result.model_dump(),
-                },
-            )
-            return result
-
-        # Keep plan consistent with registry risk (UI + audit correctness)
-        step = step.model_copy(
-            update={
-                "risk_level": tool_risk,
-                "requires_approval": tool_risk in ("MODIFY", "CRITICAL"),
-            }
-        )
-
-        needs = tool_risk in ("MODIFY", "CRITICAL")
-
-        if needs:
-            ok = _request_approval(
-                step,
-                non_interactive=non_interactive,
-                logp=logp,
-                session_id=session.session_id,
-            )
-            if not ok:
-                # Abort: no execution
+                # Abort execution cleanly
                 result = RunResult(
-                    session_id=session.session_id, dry_run=dry_run, plan=plan, results=[])
-                append_jsonl(logp, {
-                             "event": "run_result", "session_id": session.session_id, "result": result.model_dump()})
+                    session_id=session.session_id,
+                    dry_run=dry_run,
+                    plan=plan,
+                    results=[],
+                )
+
+                append_jsonl(
+                    logp,
+                    {
+                        "event": "run_result",
+                        "session_id": session.session_id,
+                        "result": result.model_dump(),
+                    },
+                )
                 return result
 
-            step = step.model_copy(update={"approved": True})
+            # Keep plan consistent with registry risk (UI + audit correctness)
+            step = step.model_copy(
+                update={
+                    "risk_level": tool_risk,
+                    "requires_approval": tool_risk in ("MODIFY", "CRITICAL"),
+                }
+            )
 
-        approved_steps.append(step)
+            needs = tool_risk in ("MODIFY", "CRITICAL")
 
-    # Replace plan with approved plan
-    plan = plan.model_copy(update={"steps": approved_steps})
+            if needs:
+                ok = _request_approval(
+                    step,
+                    non_interactive=non_interactive,
+                    logp=logp,
+                    session_id=session.session_id,
+                )
+                if not ok:
+                    # Abort: no execution
+                    result = RunResult(
+                        session_id=session.session_id, dry_run=dry_run, plan=plan, results=[])
+                    append_jsonl(logp, {
+                        "event": "run_result", "session_id": session.session_id, "result": result.model_dump()})
+                    return result
+
+                step = step.model_copy(update={"approved": True})
+
+            approved_steps.append(step)
+
+        # Replace plan with approved plan
+        plan = plan.model_copy(update={"steps": approved_steps})
 
     append_jsonl(
         logp,
