@@ -1,6 +1,8 @@
 import json
 import subprocess
 import sys
+import os
+import pytest
 from pathlib import Path
 
 from platformdirs import user_data_dir
@@ -10,6 +12,27 @@ from typer.testing import CliRunner
 from cortex.cli import app
 from cortex.runtime.config import load_config, save_config
 from cortex.security.passwords import verify_password
+from cortex.security.path_guard import enforce_allowed_path, PathViolation
+
+
+# -------------------------
+# Path guard unit-ish tests
+# -------------------------
+
+def test_deny_windows_system_paths():
+    if os.name != "nt":
+        pytest.skip("Windows-only denylist")
+
+    with pytest.raises(PathViolation):
+        enforce_allowed_path(r"C:\Windows\System32", [r"C:\\"])
+
+
+def test_deny_drive_root():
+    if os.name != "nt":
+        pytest.skip("Windows-only root test")
+
+    with pytest.raises(PathViolation):
+        enforce_allowed_path(r"C:\\", [r"C:\\"])
 
 
 def run_cli(*args: str) -> subprocess.CompletedProcess:
@@ -58,8 +81,11 @@ def test_commands_and_logs():
     logs_dir = data_dir / "logs"
     assert logs_dir.exists(), f"Logs dir not found: {logs_dir}"
 
-    logs = sorted(logs_dir.glob("session_*.jsonl"),
-                  key=lambda p: p.stat().st_mtime, reverse=True)
+    logs = sorted(
+        logs_dir.glob("session_*.jsonl"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     assert logs, f"No session logs found in: {logs_dir}"
 
     latest = logs[0]
@@ -78,8 +104,11 @@ def test_commands_and_logs():
 
     # Find the plan_validated event that contains the full plan (loop writes {"plan": ...})
     plan_event = next(
-        (e for e in events if ev_name(e) ==
-         "plan_validated" and isinstance(e.get("plan"), dict)),
+        (
+            e
+            for e in events
+            if ev_name(e) == "plan_validated" and isinstance(e.get("plan"), dict)
+        ),
         None,
     )
 
@@ -101,8 +130,6 @@ def test_secure_mode_enable_disable(monkeypatch):
     assert r.exit_code == 0, r.output
 
     # 2) monkeypatch getpass used by the secure CLI
-    # If cli.py has: `from getpass import getpass`
-    # then patch: "cortex.cli.getpass"
     monkeypatch.setattr("cortex.cli.getpass", lambda prompt="": "testpass123")
 
     # 3) enable secure mode

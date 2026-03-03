@@ -1,11 +1,10 @@
 from __future__ import annotations
 import fnmatch
-from typing import List
+from typing import List, Optional, Any
 from pathlib import Path
-from typing import Optional
 
-from typing import Any
 from cortex.security.path_guard import enforce_allowed_path
+from cortex.runtime.config import config_path, logs_dir
 
 __all__ = [
     "fs_list",
@@ -23,8 +22,11 @@ def fs_list(path: str, allowed_paths: list[str]) -> list[dict[str, Any]]:
         return []
     out: list[dict[str, Any]] = []
     for p in rp.iterdir():
-        out.append({"name": p.name, "path": str(
-            p), "type": "dir" if p.is_dir() else "file"})
+        out.append({
+            "name": p.name,
+            "path": str(p),
+            "type": "dir" if p.is_dir() else "file",
+        })
     return out
 
 
@@ -42,13 +44,14 @@ def fs_search(path: str, pattern: str, allowed_paths: List[str]) -> list[dict]:
     return results
 
 
-MAX_READ_BYTES = 1_000_000  # 1MB
+MAX_READ_BYTES = 1_000_000   # 1MB
+MAX_WRITE_BYTES = 1_000_000  # 1MB
 
 
 def fs_read_text(path: str, allowed_paths: List[str]) -> str:
     p = enforce_allowed_path(path, allowed_paths)
-
     p = Path(p)
+
     if not p.is_file():
         raise ValueError("Not a file")
 
@@ -70,9 +73,25 @@ def fs_write_text(
     if not target:
         raise ValueError("Missing path/file_path")
 
-    rp = enforce_allowed_path(target, allowed_paths)
-    p = Path(rp)
+    # A) write-size cap
+    if content is None:
+        content = ""
+    if len(content.encode("utf-8")) > MAX_WRITE_BYTES:
+        raise ValueError("Content too large (limit 1MB)")
 
+    rp = enforce_allowed_path(target, allowed_paths)
+
+    # B) block writing to config + logs
+    cfg_p = config_path().resolve()
+    logs_p = logs_dir().resolve()
+    target_p = Path(rp).resolve()
+
+    if target_p == cfg_p:
+        raise ValueError("Refusing to modify Cortex config file")
+    if target_p == logs_p or target_p.is_relative_to(logs_p):
+        raise ValueError("Refusing to modify Cortex logs directory")
+
+    p = Path(rp)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
 
@@ -87,7 +106,11 @@ def fs_move_rename(src: str, dest: str, allowed_paths: List[str]) -> dict:
     return {"moved": str(dest_p)}
 
 
-def fs_delete(path: str = None, allowed_paths: list[str] = None, file_path: str = None) -> dict:
+def fs_delete(
+    path: str = None,
+    allowed_paths: list[str] = None,
+    file_path: str = None,
+) -> dict:
     """
     CRITICAL: Delete a file (or empty directory).
     Accepts either `path` or `file_path` for planner robustness.
@@ -98,18 +121,28 @@ def fs_delete(path: str = None, allowed_paths: list[str] = None, file_path: str 
         raise ValueError("Missing path/file_path")
 
     rp = enforce_allowed_path(target, allowed_paths)
+
+    # C) block deleting config + logs
+    cfg_p = config_path().resolve()
+    logs_p = logs_dir().resolve()
+    target_p = Path(rp).resolve()
+
+    if target_p == cfg_p:
+        raise ValueError("Refusing to delete Cortex config file")
+    if target_p == logs_p or target_p.is_relative_to(logs_p):
+        raise ValueError("Refusing to delete Cortex logs directory")
+
     p = Path(rp)
 
     if not p.exists():
         raise FileNotFoundError(f"Path not found: {p}")
 
-    # Safety: only delete files or EMPTY dirs in Phase 1.8
+    # Safety: only delete files or EMPTY dirs
     if p.is_file():
         p.unlink()
         return {"deleted": str(p), "type": "file"}
 
     if p.is_dir():
-        # only allow empty directory delete for now
         p.rmdir()
         return {"deleted": str(p), "type": "dir"}
 
