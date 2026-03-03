@@ -4,6 +4,9 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
+from rich.pretty import Pretty
+from rich import box
 from getpass import getpass
 from pathlib import Path
 
@@ -53,7 +56,152 @@ def _main() -> None:
     _bootstrap_tools()
 
 
+# ---------------- UX HELPERS ----------------
+
+def _risk_style(risk: str) -> str:
+    r = (risk or "").upper()
+    if r == "SAFE":
+        return "green"
+    if r == "MODIFY":
+        return "yellow"
+    if r == "CRITICAL":
+        return "red"
+    return "white"
+
+
+def _risk_badge(risk: str) -> Text:
+    r = (risk or "UNKNOWN").upper()
+    t = Text(r)
+    t.stylize(f"bold {_risk_style(r)}")
+    return t
+
+
+def _render_secure_banner(cfg: dict) -> None:
+    secure = (cfg.get("secure") or {})
+    enabled = bool(secure.get("enabled"))
+    if not enabled:
+        return
+
+    allowed = secure.get("allowed_paths") or []
+    lines = [
+        "[bold green]SECURE MODE ENABLED[/bold green]",
+        "[dim]SAFE tools only. MODIFY/CRITICAL will be blocked.[/dim]",
+    ]
+    if allowed:
+        lines.append("")
+        lines.append("[bold]Allowed paths:[/bold]")
+        for p in allowed:
+            lines.append(f"  • {p}")
+    else:
+        lines.append("")
+        lines.append(
+            "[yellow]Allowed paths not set — default HOME-only policy applies.[/yellow]"
+        )
+
+    console.print(
+        Panel("\n".join(lines), title="security", border_style="green"))
+
+
+def _pretty_fs_list(output) -> bool:
+    # output is typically: [{"name": "...", "path": "...", "type": "dir/file"}, ...]
+    if isinstance(output, list) and output and isinstance(output[0], dict) and "name" in output[0]:
+        for it in output:
+            name = it.get("name", "")
+            typ = it.get("type", "")
+            badge = "[dim](dir)[/dim]" if typ == "dir" else ""
+            console.print(f"{name} {badge}")
+        return True
+    return False
+
+
+def _render_plan(result, dry_run: bool) -> None:
+    title = "Plan Generated (dry-run)" if dry_run else "Plan Executed"
+    console.print(Panel.fit(title, title=f"session {result.session_id}"))
+
+    table = Table(
+        title="Plan Steps",
+        box=box.SIMPLE,
+        show_lines=True,
+        header_style="bold",
+    )
+    table.add_column("Step", style="bold", width=10)
+    table.add_column("Description")
+    table.add_column("Tool", style="cyan")
+    table.add_column("Risk", justify="center", width=10)
+
+    for s in result.plan.steps:
+        table.add_row(
+            str(s.id),
+            s.description,
+            s.tool,
+            _risk_badge(s.risk_level),
+        )
+
+    console.print(table)
+
+    # Optional: show params in a compact way
+    if result.plan.steps:
+        console.print("[bold]Step Params[/bold]")
+        for s in result.plan.steps:
+            console.print(f"[bold]{s.id}[/bold] {s.tool}")
+            console.print(Pretty(s.params, indent_guides=True))
+    else:
+        console.print("[yellow]Planner returned no steps.[/yellow]")
+
+
+def _render_results(result) -> None:
+    console.print("\n[bold]Results[/bold]")
+
+    if not result.results:
+        console.print("[yellow]No steps executed.[/yellow]")
+        console.print(
+            "[dim]Possible reasons: approval denied, secure mode blocked, or no executable steps.[/dim]"
+        )
+        return
+
+    ok = 0
+    fail = 0
+
+    for r in result.results:
+        if r.ok:
+            ok += 1
+            console.print(
+                f"[green]OK[/green] {r.step_id} [cyan]{r.tool}[/cyan]")
+
+            if r.tool == "filesystem.list" and _pretty_fs_list(r.output):
+                pass
+            else:
+                console.print(Pretty(r.output, indent_guides=True))
+
+        else:
+            fail += 1
+            console.print(f"[red]FAIL[/red] {r.step_id} [cyan]{r.tool}[/cyan]")
+            # Better “secure mode blocked” readability (best-effort until Phase 1.9.1)
+            err = str(r.error or "")
+            if "secure" in err.lower() and "block" in err.lower():
+                console.print(
+                    Panel(
+                        err, title="[red]SECURITY BLOCKED[/red]", border_style="red")
+                )
+            else:
+                console.print(
+                    Panel(err or "Unknown error",
+                          title="[red]Error[/red]", border_style="red")
+                )
+
+    # Summary
+    total = ok + fail
+    status = "[green]SUCCESS[/green]" if fail == 0 else "[red]FAILED[/red]"
+    summary = Table(box=box.SIMPLE, show_header=False)
+    summary.add_row("Steps executed", str(total))
+    summary.add_row("Succeeded", f"[green]{ok}[/green]")
+    summary.add_row("Failed", f"[red]{fail}[/red]")
+    summary.add_row("Status", status)
+
+    console.print(Panel(summary, title="Execution Summary"))
+
 # ---------------- CONFIG ----------------
+
 
 @config_app.command("init")
 def config_init() -> None:
@@ -199,29 +347,15 @@ def run(
     non_interactive: bool = typer.Option(
         False, "--non-interactive", help="Fail if approval is required"),
 ) -> None:
+    cfg = load_config()
+    _render_secure_banner(cfg)
+
     result = run_task(task, dry_run=dry_run, non_interactive=non_interactive)
 
-    console.print(Panel.fit(("Plan Generated (dry-run)" if dry_run else "Plan Executed"),
-                  title=f"session {result.session_id}"))
-
-    for s in result.plan.steps:
-        console.print(f"[bold]{s.id}[/bold] {s.description}")
-        console.print(f"  tool: {s.tool}")
-        console.print(f"  risk: {s.risk_level}")
-        console.print(f"  params: {s.params}")
+    _render_plan(result, dry_run=dry_run)
 
     if not dry_run:
-        console.print("\n[bold]Results[/bold]")
-        for r in result.results:
-            if r.ok:
-                console.print(f"[green]OK[/green] {r.step_id} {r.tool}")
-                console.print(f"  output: {r.output}")
-            else:
-                console.print(f"[red]FAIL[/red] {r.step_id} {r.tool}")
-                console.print(f"  error: {r.error}")
-        if not result.results:
-            console.print(
-                "[yellow]No steps executed (approval denied or dry-run).[/yellow]")
+        _render_results(result)
 
 
 # ---------------- INTERACTIVE ----------------
