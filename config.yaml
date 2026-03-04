@@ -17,3 +17,21 @@ secure:
   enabled: false
   password_hash: null
   allowed_paths: []
+
+browser:
+  enabled: true
+
+  # Leave empty to allow ALL public domains.
+  # If you want to restrict later, add domains here.
+  allowed_domains: []
+
+  # Optional: block specific domains explicitly (recommended to keep empty unless needed)
+  blocked_domains: []
+
+  timeout_seconds: 10
+  max_bytes: 200000
+  allowed_content_types:
+    - text/plain
+    - text/html
+    - application/json
+  max_redirects: 3

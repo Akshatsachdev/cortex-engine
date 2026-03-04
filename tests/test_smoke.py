@@ -10,14 +10,16 @@ from platformdirs import user_data_dir
 from typer.testing import CliRunner
 
 from cortex.cli import app
-from cortex.runtime.config import load_config, save_config
+from cortex.runtime.config import load_config, save_config, write_config
 from cortex.security.passwords import verify_password
 from cortex.security.path_guard import enforce_allowed_path, PathViolation
+from cortex.tools.browser import fsafe_browser_fetch, BrowserBlocked
 
 
 # -------------------------
 # Path guard unit-ish tests
 # -------------------------
+
 
 def test_deny_windows_system_paths():
     if os.name != "nt":
@@ -177,3 +179,52 @@ def test_secure_allowed_paths_commands():
     secure_cfg = cfg.get("secure") or {}
 
     assert secure_cfg.get("allowed_paths") == []
+
+
+def test_browser_domain_blocked():
+    cfg = load_config()
+    cfg.setdefault("browser", {})
+    cfg["browser"]["enabled"] = True
+    cfg["browser"]["allowed_domains"] = ["example.com"]
+    cfg["browser"]["timeout_seconds"] = 5
+    cfg["browser"]["max_bytes"] = 200000
+    cfg["browser"]["allowed_content_types"] = ["text/html", "text/plain"]
+    cfg["browser"]["max_redirects"] = 2
+    write_config(cfg)
+
+    try:
+        fsafe_browser_fetch("https://google.com")
+        assert False, "Expected BrowserBlocked"
+    except BrowserBlocked:
+        assert True
+
+
+def test_browser_localhost_blocked():
+    cfg = load_config()
+    cfg.setdefault("browser", {})
+    cfg["browser"]["enabled"] = True
+    cfg["browser"]["allowed_domains"] = ["localhost"]
+    write_config(cfg)
+
+    try:
+        fsafe_browser_fetch("http://localhost:8000")
+        assert False, "Expected BrowserBlocked"
+    except BrowserBlocked:
+        assert True
+
+
+def test_browser_fetch_example_com():
+    cfg = load_config()
+    cfg.setdefault("browser", {})
+    cfg["browser"]["enabled"] = True
+    cfg["browser"]["allowed_domains"] = ["example.com"]
+    cfg["browser"]["timeout_seconds"] = 10
+    cfg["browser"]["max_bytes"] = 200000
+    cfg["browser"]["allowed_content_types"] = ["text/html", "text/plain"]
+    cfg["browser"]["max_redirects"] = 3
+    write_config(cfg)
+
+    out = fsafe_browser_fetch("https://example.com")
+    assert out["status"] in (200, 301, 302)
+    assert out["bytes"] > 0
+    assert "text" in out

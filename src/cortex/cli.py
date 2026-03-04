@@ -19,8 +19,11 @@ from cortex.agent.loop import run_task
 from cortex.cli_llm import app as llm_app
 from cortex.security.passwords import hash_password, verify_password
 from cortex.runtime.logging import audit_event
-
+from cortex.tools.browser import fsafe_browser_fetch
 from cortex.runtime.config import effective_allowed_paths
+
+from cortex.tools.browser import fsafe_browser_fetch, fsafe_browser_open
+
 
 from cortex.tools.filesystem import fs_delete
 
@@ -49,6 +52,10 @@ def _bootstrap_tools() -> None:
     register(ToolSpec(name="filesystem.write_text",
              risk="MODIFY", fn=fs_write_text))
     register(ToolSpec(name="filesystem.delete", risk="CRITICAL", fn=fs_delete))
+    register(ToolSpec(name="browser.fetch", risk="SAFE", fn=fsafe_browser_fetch))
+
+    register(ToolSpec(name="browser.fetch", risk="SAFE", fn=fsafe_browser_fetch))
+    register(ToolSpec(name="browser.open", risk="SAFE", fn=fsafe_browser_open))
 
 
 @app.callback()

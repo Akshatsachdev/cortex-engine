@@ -26,6 +26,19 @@ def _build_prompt(task: str, allowed_tools: List[str]) -> str:
         "Start with <json> on the first line and output JSON immediately. No prose.\n"
         f"Task: {task}\n"
         f"AllowedTools: {tools_csv}\n"
+
+        "Tool rules:\n"
+        "If the user asks to open a site in Brave/Chrome/Edge/Firefox, "
+        "you MUST set params.browser accordingly.\n"
+        "browser.open params:\n"
+        "- url: string\n"
+        "- browser: optional string in {default, brave, chrome, edge, firefox}\n"
+        "Examples:\n"
+        "- \"open youtube.com\" -> "
+        "{\"tool\":\"browser.open\",\"params\":{\"url\":\"https://youtube.com\"}}\n"
+        "- \"open youtube.com in brave\" -> "
+        "{\"tool\":\"browser.open\",\"params\":{\"url\":\"https://youtube.com\",\"browser\":\"brave\"}}\n"
+
         "JSON schema (exact keys):\n"
         '{"steps":[{"tool":"...","description":"...","params":{},"risk_level":"SAFE","requires_approval":false}]}\n'
         "<json>\n"
