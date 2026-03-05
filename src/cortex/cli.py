@@ -24,6 +24,7 @@ from cortex.runtime.config import effective_allowed_paths
 
 from cortex.tools.browser import fsafe_browser_fetch, fsafe_browser_open
 
+from cortex.tools.email import fsafe_email_compose
 
 from cortex.tools.filesystem import fs_delete
 
@@ -56,6 +57,7 @@ def _bootstrap_tools() -> None:
 
     register(ToolSpec(name="browser.fetch", risk="SAFE", fn=fsafe_browser_fetch))
     register(ToolSpec(name="browser.open", risk="SAFE", fn=fsafe_browser_open))
+    register(ToolSpec(name="email.compose", risk="SAFE", fn=fsafe_email_compose))
 
 
 @app.callback()

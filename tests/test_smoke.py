@@ -14,6 +14,7 @@ from cortex.runtime.config import load_config, save_config, write_config
 from cortex.security.passwords import verify_password
 from cortex.security.path_guard import enforce_allowed_path, PathViolation
 from cortex.tools.browser import fsafe_browser_fetch, BrowserBlocked
+from cortex.tools.email import _gmail_compose_url
 
 
 # -------------------------
@@ -228,3 +229,22 @@ def test_browser_fetch_example_com():
     assert out["status"] in (200, 301, 302)
     assert out["bytes"] > 0
     assert "text" in out
+
+
+def test_gmail_compose_url_basic():
+    url = _gmail_compose_url(to="test@example.com",
+                             subject="Hello", body="Line1")
+    assert "mail.google.com/mail/" in url
+    assert "view=cm" in url
+    assert "fs=1" in url
+    assert "to=test%40example.com" in url
+    assert "su=Hello" in url
+    assert "body=Line1" in url
+
+
+def test_gmail_compose_url_cc_bcc():
+    url = _gmail_compose_url(
+        to="a@b.com", subject="S", body="B", cc="c@d.com", bcc="e@f.com"
+    )
+    assert "cc=c%40d.com" in url
+    assert "bcc=e%40f.com" in url

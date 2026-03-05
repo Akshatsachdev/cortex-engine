@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 
 from typing import List, Any, Dict
 
@@ -16,31 +17,62 @@ from cortex.runtime.config import effective_allowed_paths, load_config
 
 
 def _build_prompt(task: str, allowed_tools: List[str]) -> str:
-    # Keep it short. Template-first. No long “rules list”.
     tools_csv = ", ".join(allowed_tools)
 
-    # We OPEN the <json> tag at the end so the model begins inside JSON mode.
     return (
         "You are Cortex Planner.\n"
-        "Output ONLY ONE JSON object describing the tool plan.\n"
-        "Start with <json> on the first line and output JSON immediately. No prose.\n"
+        "Return ONLY ONE JSON object. No prose.\n"
+        "First line MUST be <json> and then JSON immediately.\n"
         f"Task: {task}\n"
         f"AllowedTools: {tools_csv}\n"
-
-        "Tool rules:\n"
-        "If the user asks to open a site in Brave/Chrome/Edge/Firefox, "
-        "you MUST set params.browser accordingly.\n"
-        "browser.open params:\n"
-        "- url: string\n"
-        "- browser: optional string in {default, brave, chrome, edge, firefox}\n"
-        "Examples:\n"
-        "- \"open youtube.com\" -> "
-        "{\"tool\":\"browser.open\",\"params\":{\"url\":\"https://youtube.com\"}}\n"
-        "- \"open youtube.com in brave\" -> "
-        "{\"tool\":\"browser.open\",\"params\":{\"url\":\"https://youtube.com\",\"browser\":\"brave\"}}\n"
-
+        "\n"
+        "GOAL: produce a minimal, correct, safe plan.\n"
+        "Prefer 1 step when possible.\n"
+        "\n"
+        "HARD SAFETY RULES (never violate):\n"
+        "- Only use http:// or https:// URLs.\n"
+        "- NEVER output URLs with schemes: chrome://, edge://, about:, file://.\n"
+        "- NEVER invent identity/profile URLs for people (e.g., linkedin.com/in/<slug>). Use search pages.\n"
+        "- Do NOT use browser.fetch for YouTube search/play flows (pages are large).\n"
+        "\n"
+        "BROWSER PARAM EXTRACTION (must follow):\n"
+        "- If the task contains 'in/from/using/with <browser>' where <browser> is one of\n"
+        "  {chrome, brave, edge, firefox}, set params.browser to that value.\n"
+        "- Do NOT create an extra step to 'open chrome'. Use params.browser instead.\n"
+        "\n"
+        "TOOL-SPECIFIC RULES:\n"
+        "1) browser.open (SAFE)\n"
+        "   - params: {\"url\": \"https://...\", \"browser\": \"default|chrome|brave|edge|firefox\" (optional)}\n"
+        "   - Use for opening a website or a search results page.\n"
+        "\n"
+        "2) browser.fetch (SAFE)\n"
+        "   - Use ONLY when the user explicitly asks to fetch/read/download page content as text/json.\n"
+        "   - Avoid for dynamic/large sites (YouTube, LinkedIn, Gmail).\n"
+        "\n"
+        "3) email.compose (SAFE)\n"
+        "   - params: {\"to\": \"...\", \"subject\": \"...\", \"body\": \"...\", \"browser\": \"...\" (optional)}\n"
+        "   - If the user mentions a browser (chrome/brave/edge/firefox), set params.browser accordingly.\n"
+        "   - Do NOT add browser.open chrome:// steps.\n"
+        "\n"
+        "DETERMINISTIC WEBSITE INTENTS:\n"
+        "- If user says 'play <query> on youtube' or 'play <query> in youtube.com':\n"
+        "  Open the YouTube search URL with browser.open:\n"
+        "  https://www.youtube.com/results?search_query=<urlencoded query>\n"
+        "  (ONE step only)\n"
+        "\n"
+        "- If user says 'open <name> in linkedin' or 'find <name> on linkedin':\n"
+        "  Open LinkedIn people search URL with browser.open:\n"
+        "  https://www.linkedin.com/search/results/people/?keywords=<urlencoded name>\n"
+        "  (Do NOT invent linkedin /in/ profile)\n"
+        "\n"
+        "- If user says 'search <query> on google':\n"
+        "  Open: https://www.google.com/search?q=<urlencoded query>\n"
+        "\n"
+        "URL ENCODING:\n"
+        "- Replace spaces with + and percent-encode special characters.\n"
+        "\n"
         "JSON schema (exact keys):\n"
-        '{"steps":[{"tool":"...","description":"...","params":{},"risk_level":"SAFE","requires_approval":false}]}\n'
+        "{\"steps\":[{\"tool\":\"...\",\"description\":\"...\",\"params\":{},\"risk_level\":\"SAFE\",\"requires_approval\":false}]}\n"
         "<json>\n"
     )
 
@@ -89,6 +121,51 @@ def _inject_step_ids(plan_dict: dict) -> None:
             step["id"] = f"step_{idx}"
 
 
+_BROWSER_RE = re.compile(
+    r"\b(?:in|from|using|with)\s+(chrome|brave|edge|firefox)\b|\b(chrome|brave|edge|firefox)\s+browser\b",
+    re.IGNORECASE,
+)
+
+
+def _extract_browser_hint(task: str) -> str | None:
+    t = (task or "").strip()
+    if not t:
+        return None
+    m = _BROWSER_RE.search(t)
+    if not m:
+        return None
+    b = (m.group(1) or m.group(2) or "").lower()
+    return b or None
+
+
+def _inject_browser_hint(task: str, plan_dict: Dict[str, Any]) -> None:
+    """
+    Production-grade: do not rely on LLM to pass browser choice.
+    If user mentions a browser, inject params.browser for tools that support it.
+    """
+    browser = _extract_browser_hint(task)
+    if not browser:
+        return
+
+    steps = plan_dict.get("steps") or []
+    if not isinstance(steps, list):
+        return
+
+    for s in steps:
+        if not isinstance(s, dict):
+            continue
+
+        tool = str(s.get("tool", ""))
+        params = s.get("params")
+
+        if not isinstance(params, dict):
+            params = {}
+            s["params"] = params
+
+        if tool in {"browser.open", "browser.search", "email.compose"}:
+            params.setdefault("browser", browser)
+
+
 def build_plan(task: str, allowed_tools: List[str], session_id: str) -> Plan:
     cfg = get_config()
 
@@ -126,6 +203,7 @@ def build_plan(task: str, allowed_tools: List[str], session_id: str) -> Plan:
                 provider=provider_primary,
                 prompt=prompt,
                 session_id=session_id,
+                task=task,
             )
         except Exception as e:
             append_jsonl(
@@ -159,6 +237,7 @@ def build_plan(task: str, allowed_tools: List[str], session_id: str) -> Plan:
             provider=provider_fallback,
             prompt=prompt,
             session_id=session_id,
+            task=task,
         )
     except Exception as e:
         append_jsonl(log_path, {"type": "llm_abort", "reason": str(e)})
@@ -172,6 +251,7 @@ def _try_build_plan_with_provider(
     provider: LlamaCppProvider,
     prompt: str,
     session_id: str,
+    task: str,
 ) -> Plan:
     cfg = get_config()
     log_path = session_log_path(session_id)
@@ -195,6 +275,8 @@ def _try_build_plan_with_provider(
 
             # Locked requirement
             _inject_allowed_paths(data)
+
+            _inject_browser_hint(task, data)
 
             plan = Plan.model_validate(data)
 

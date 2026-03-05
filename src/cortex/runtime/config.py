@@ -32,6 +32,19 @@ DEFAULT_CONFIG: dict = {
         "browser": {"enabled": False, "allowlist_domains": []},
         "email": {"enabled": False, "send_enabled": False},
     },
+    "browser": {
+        "enabled": True,
+        "allowed_domains": [],   # empty = allow all public domains
+        "blocked_domains": [],
+        "timeout_seconds": 10,
+        "max_bytes": 200000,
+        "allowed_content_types": [
+            "text/plain",
+            "text/html",
+            "application/json",
+        ],
+        "max_redirects": 3,
+    },
 }
 
 

@@ -109,7 +109,8 @@ def _validate_target(url: str) -> urllib.parse.ParseResult:
     if allowed_domains:
         ok = any(_domain_matches(host, ad) for ad in allowed_domains)
         if not ok:
-            raise BrowserBlocked(f"Domain not allowed: {host}")
+            raise BrowserBlocked(
+                f"Domain not allowed: {host} (allowed_domains={allowed_domains})")
 
     # Resolve and block private/internal ranges
     ips = _resolve_host_ips(host)
