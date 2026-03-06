@@ -22,6 +22,7 @@ from cortex.runtime.logging import audit_event
 from cortex.tools.browser import fsafe_browser_fetch
 from cortex.runtime.config import effective_allowed_paths
 
+from cortex.tools.browser import fsafe_browser_search
 from cortex.tools.browser import fsafe_browser_fetch, fsafe_browser_open
 
 from cortex.tools.email import fsafe_email_compose
@@ -58,6 +59,8 @@ def _bootstrap_tools() -> None:
     register(ToolSpec(name="browser.fetch", risk="SAFE", fn=fsafe_browser_fetch))
     register(ToolSpec(name="browser.open", risk="SAFE", fn=fsafe_browser_open))
     register(ToolSpec(name="email.compose", risk="SAFE", fn=fsafe_email_compose))
+    register(ToolSpec(name="browser.search",
+             risk="SAFE", fn=fsafe_browser_search))
 
 
 @app.callback()

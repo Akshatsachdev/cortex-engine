@@ -2,6 +2,7 @@ from __future__ import annotations
 import re
 
 from typing import List, Any, Dict
+import urllib.parse
 
 from cortex.agent.models import Plan
 from cortex.config import get_config
@@ -166,8 +167,105 @@ def _inject_browser_hint(task: str, plan_dict: Dict[str, Any]) -> None:
             params.setdefault("browser", browser)
 
 
+def _rule_based_plan(task: str, allowed_tools: List[str]) -> Dict[str, Any] | None:
+    """
+    Fast deterministic planner for common intents.
+    Returns a plan dict or None to fall back to LLM planning.
+    """
+    t = (task or "").strip()
+    if not t:
+        return None
+
+    tl = t.lower()
+
+    # Helper: build 1-step plan
+    def one_step(tool: str, desc: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "steps": [{
+                "id": "step_1",
+                "tool": tool,
+                "description": desc,
+                "params": params,
+                "risk_level": "SAFE",
+                "requires_approval": False,
+            }]
+        }
+
+    # Only route if the tool exists in allowed_tools
+    def allowed(tool: str) -> bool:
+        return tool in set(allowed_tools)
+
+    # -------- YouTube "play/search" ----------
+    # Examples:
+    # "play shreya ghoshal songs in youtube.com"
+    # "play shreya ghoshal on youtube"
+    m = re.search(
+        r"\bplay\s+(.+?)\s+(?:in|on)\s+(?:youtube(?:\.com)?|www\.youtube\.com)\b", tl)
+    if m and allowed("browser.search"):
+        q = t[m.start(1):m.end(1)].strip()
+        return one_step(
+            "browser.search",
+            f"Search YouTube for {q}",
+            {"site": "youtube.com", "query": q},
+        )
+
+    # -------- LinkedIn "open/find <name>" ----------
+    m = re.search(
+        r"\b(?:open|find|search)\s+(.+?)\s+(?:in|on)\s+(?:linkedin(?:\.com)?|www\.linkedin\.com)\b", tl)
+    if m and allowed("browser.search"):
+        q = t[m.start(1):m.end(1)].strip()
+        return one_step(
+            "browser.search",
+            f"Search LinkedIn people for {q}",
+            {"site": "linkedin.com", "query": q},
+        )
+
+    # -------- Google search ----------
+    m = re.search(
+        r"\bsearch\s+(.+?)\s+(?:in|on)\s+(?:google(?:\.com)?|www\.google\.com)\b", tl)
+    if m and allowed("browser.search"):
+        q = t[m.start(1):m.end(1)].strip()
+        return one_step(
+            "browser.search",
+            f"Search Google for {q}",
+            {"site": "google.com", "query": q},
+        )
+
+    # -------- Direct "open <domain>" ----------
+    # If user says "open youtube.com" or "open linkedin.com"
+    m = re.search(r"^\s*open\s+([a-z0-9.-]+\.[a-z]{2,})(?:\s|$)", tl)
+    if m and allowed("browser.open"):
+        domain = m.group(1)
+        url = "https://" + domain
+        return one_step(
+            "browser.open",
+            f"Open {domain}",
+            {"url": url},
+        )
+
+    return None
+
+
 def build_plan(task: str, allowed_tools: List[str], session_id: str) -> Plan:
     cfg = get_config()
+
+    # Phase 1.12: fast deterministic routing for common intents
+    rb = _rule_based_plan(task, allowed_tools)
+    if rb is not None:
+        log_path = session_log_path(session_id)
+        append_jsonl(log_path, {"type": "rule_based_plan_used",
+                     "task": task, "steps": len(rb.get("steps", []))})
+
+        # keep your locked requirements consistent
+        _inject_step_ids(rb)
+        _inject_allowed_paths(rb)
+        _inject_browser_hint(task, rb)  # your Phase 1.11 injection
+
+        plan = Plan.model_validate(rb)
+        validate_plan_or_raise(plan)
+        append_jsonl(
+            log_path, {"type": "plan_validated", "steps": len(plan.steps)})
+        return plan
 
     # LLM disabled → fallback to stub (unchanged)
     if not cfg.llm.enabled:

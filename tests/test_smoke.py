@@ -15,6 +15,8 @@ from cortex.security.passwords import verify_password
 from cortex.security.path_guard import enforce_allowed_path, PathViolation
 from cortex.tools.browser import fsafe_browser_fetch, BrowserBlocked
 from cortex.tools.email import _gmail_compose_url
+from cortex.tools.browser import _make_site_search_url
+from cortex.llm.planner import _rule_based_plan
 
 
 # -------------------------
@@ -248,3 +250,29 @@ def test_gmail_compose_url_cc_bcc():
     )
     assert "cc=c%40d.com" in url
     assert "bcc=e%40f.com" in url
+
+
+def test_youtube_search_url():
+    u = _make_site_search_url("youtube.com", "shreya ghoshal songs")
+    assert u.startswith("https://www.youtube.com/results")
+    assert "search_query=shreya+ghoshal+songs" in u.lower()
+
+
+def test_linkedin_people_search_url():
+    u = _make_site_search_url("linkedin.com", "ayush gupta")
+    assert u.startswith("https://www.linkedin.com/search/results/people/")
+    assert "keywords=ayush+gupta" in u.lower()
+
+
+def test_google_search_url():
+    u = _make_site_search_url("google.com", "cortex engine")
+    assert u.startswith("https://www.google.com/search")
+    assert "q=cortex+engine" in u.lower()
+
+
+def test_router_youtube():
+    p = _rule_based_plan("play shreya ghoshal songs in youtube.com in brave",
+                         ["browser.search", "browser.open"])
+    assert p is not None
+    assert p["steps"][0]["tool"] == "browser.search"
+    assert p["steps"][0]["params"]["site"] == "youtube.com"

@@ -357,3 +357,48 @@ def fsafe_browser_open(url: str, browser: str = "default") -> dict:
         return {"opened": True, "url": cur, "browser": b, "exe": None, "note": "Opened via xdg-open (default browser fallback)"}
 
     raise BrowserBlocked(f"{b} browser not found on system")
+
+
+def _make_site_search_url(site: str, query: str) -> str:
+    s = (site or "").strip().lower()
+    q = urllib.parse.quote_plus((query or "").strip())
+
+    # Normalize site input like "youtube.com" / "www.youtube.com"
+    if s.startswith("www."):
+        s = s[4:]
+
+    if "youtube" in s:
+        return f"https://www.youtube.com/results?search_query={q}"
+
+    if "linkedin" in s:
+        # People search (deterministic; no guessing profile slugs)
+        return f"https://www.linkedin.com/search/results/people/?keywords={q}"
+
+    if "google" in s:
+        return f"https://www.google.com/search?q={q}"
+
+    # Generic fallback: DuckDuckGo site search
+    # e.g. site:example.com query
+    site_q = urllib.parse.quote_plus(s) if s else ""
+    if site_q:
+        return f"https://duckduckgo.com/?q=site%3A{site_q}+{q}"
+    return f"https://duckduckgo.com/?q={q}"
+
+
+def fsafe_browser_search(query: str, site: str = "google.com", browser: str = "default") -> dict:
+    """
+    SAFE tool: open a search results page for the given query on the target site.
+    Deterministic: does not fetch page HTML.
+    """
+    if not query or not str(query).strip():
+        raise ValueError("query is required")
+
+    url = _make_site_search_url(site=site, query=query)
+    out = fsafe_browser_open(url=url, browser=browser)
+    return {
+        "opened": out.get("opened", False),
+        "url": url,
+        "browser": out.get("browser", browser),
+        "site": site,
+        "query": query,
+    }
